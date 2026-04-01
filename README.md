@@ -19,45 +19,18 @@ A [Claude Cowork](https://claude.ai) skill that turns **SwingVision** screenshot
 
 ### Install
 
-**Option 1 — Upload via Cowork UI (recommended)**
-
 1. Download [`tennis-report.skill`](https://github.com/zhengyuxin/tennis-training-claude-skill/raw/main/tennis-report.skill)
 2. In Claude Cowork, open **Settings → Skills → Upload skill**
 3. Drag and drop `tennis-report.skill` into the upload dialog
 4. Restart Claude Cowork — the skill loads automatically
 
-**Option 2 — Command line**
-
-Claude Cowork stores skills in a session-specific path with auto-generated UUIDs, so `~/.claude/skills` won't work. Use this script to auto-detect and install:
-
-```bash
-# 1. Clone the repo
-git clone https://github.com/zhengyuxin/tennis-training-claude-skill.git
-
-# 2. Find Claude Cowork's skills directory and install
-SKILLS_DIR=$(find ~/Library/Application\ Support/Claude/local-agent-mode-sessions/skills-plugin \
-  -maxdepth 3 -type d -name "skills" 2>/dev/null | head -1)
-
-if [ -z "$SKILLS_DIR" ]; then
-  echo "Could not find skills directory. Open Cowork at least once first."
-  exit 1
-fi
-
-cp -r tennis-training-claude-skill "$SKILLS_DIR/tennis-report"
-echo "Installed to: $SKILLS_DIR/tennis-report"
-```
-
 ### Usage
 
-Just talk to Claude in Cowork mode:
+1. After a SwingVision session, take screenshots of the results screen for both players
+2. Drag all screenshots into the Cowork chat window
+3. Type `/tennis-report` to trigger the skill
 
-```
-"Extract data from these SwingVision screenshots and update the note"
-"Generate a training report for YZ and XT"
-"生成训练报告"
-```
-
-Claude detects your message language and generates the report in the same language — no manual setting needed.
+Claude will extract the data, update your Apple Notes training log, and generate a PDF report automatically.
 
 ### Requirements
 
@@ -148,45 +121,18 @@ MIT — use freely, adapt to your own players and training goals.
 
 ### 安装
 
-**方式一 — 通过 Cowork 界面上传（推荐）**
-
 1. 下载 [`tennis-report.skill`](https://github.com/zhengyuxin/tennis-training-claude-skill/raw/main/tennis-report.skill)
 2. 打开 Claude Cowork，进入 **Settings → Skills → Upload skill**
 3. 将 `tennis-report.skill` 拖入上传对话框
 4. 重启 Claude Cowork，skill 自动加载
 
-**方式二 — 命令行安装**
-
-Claude Cowork 将 skills 存放在含随机 UUID 的路径中，`~/.claude/skills` 不会生效。用下面的脚本自动定位并安装：
-
-```bash
-# 克隆仓库
-git clone https://github.com/zhengyuxin/tennis-training-claude-skill.git
-
-# 自动找到 Claude Cowork 的 skills 目录并安装
-SKILLS_DIR=$(find ~/Library/Application\ Support/Claude/local-agent-mode-sessions/skills-plugin \
-  -maxdepth 3 -type d -name "skills" 2>/dev/null | head -1)
-
-if [ -z "$SKILLS_DIR" ]; then
-  echo "未找到 skills 目录，请先打开一次 Cowork。"
-  exit 1
-fi
-
-cp -r tennis-training-claude-skill "$SKILLS_DIR/tennis-report"
-echo "已安装到：$SKILLS_DIR/tennis-report"
-```
-
 ### 使用方式
 
-在 Cowork 模式下直接告诉 Claude：
+1. 每次 SwingVision 训练结束后，截取两位球员的训练结果页面截图
+2. 将所有截图拖入 Cowork 对话窗口
+3. 输入 `/tennis-report` 触发 skill
 
-```
-"从这些 SwingVision 截图中提取数据并更新 Notes"
-"基于 Notes 里的数据生成 YZ 和 XT 的训练报告"
-"Generate a training report for YZ and XT"
-```
-
-Claude 自动识别消息语言，用对应语言生成报告，无需手动指定。
+Claude 会自动提取数据、更新 Apple Notes 训练记录，并生成 PDF 报告。
 
 ### 环境要求
 
