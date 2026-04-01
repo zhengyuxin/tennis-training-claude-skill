@@ -27,18 +27,45 @@ This skill handles a three-phase workflow. Each phase can be run independently o
 
 ---
 
-## Language selection — automatic
+## Language selection — automatic (screenshot-first)
 
-**Detect the user's language from their message and set `LANG` accordingly before running any script:**
+**Determine the output language from the SwingVision app UI visible in the screenshots — not from the user's message language.** This is the first thing to do before any extraction or processing step.
 
-| User writes in | Set `LANG` |
+### Step 1 — Inspect the screenshot UI language
+
+Look at the metric labels shown in the uploaded screenshots:
+
+| If the app displays | Set `LANG` |
 |---|---|
-| Chinese (any Chinese characters present) | `'cn'` |
-| English | `'en'` |
+| Chinese labels: 正手, 反手, 整体, 落点, 超过5回合, 最长回合, 速度 … | `'cn'` |
+| English labels: Forehand, Backhand, Overall, Landing, Rallies, Longest Rally, Speed … | `'en'` |
 
-Apply this to both `generate_pdf.py` and `generate_pdf_mobile.py`. Do not ask the user to specify a language manually.
+The screenshot language is ground truth — it reflects the user's chosen app locale and is the most reliable signal.
 
-**All dynamically generated text — including the Analysis & Insights paragraphs (section 7) and Training Recommendations (section 8) — must also be written in the selected language.** If `LANG='en'`, write all analysis prose and training plan text in English. If `LANG='cn'`, write in Chinese.
+### Step 2 — Fallback when no screenshots are provided
+
+If the user hasn't uploaded screenshots yet (e.g. "just generate the PDF" with data already stored), fall back to the user's message language:
+
+| User's message contains | Set `LANG` |
+|---|---|
+| Any Chinese characters | `'cn'` |
+| Only English | `'en'` |
+
+### Step 3 — Apply consistently across ALL outputs
+
+Once `LANG` is set, use it everywhere without exception:
+
+| Output surface | Language rule |
+|---|---|
+| **Claude's own Cowork replies** | Write in the detected language (Chinese if `cn`, English if `en`) |
+| **Apple Notes — note title** | Use the language-appropriate format (see Phase 2 below) |
+| **Apple Notes — table headers** | Use the correct header set for the detected language (see Phase 2 below) |
+| **Apple Notes — confirmation messages** | Write in detected language |
+| **PDF — all section headings, chart labels, axis titles** | Controlled by `LANG` variable in both scripts |
+| **PDF — Analysis & Insights (section 7)** | Write all prose in detected language |
+| **PDF — Training Recommendations (section 8)** | Write all plan items in detected language |
+
+Do not ask the user to choose a language. Do not mix languages within a single output.
 
 ---
 
@@ -128,7 +155,57 @@ If no matching note is found, **automatically create a new one** — do not stop
 - If YZ is one of the players: `YZ&[other] 🎾` (YZ always first)
 - Otherwise: alphabetical order, e.g. `AB&CD 🎾`
 
-**Note template to use when creating:**
+**Note template to use when creating — choose the header set that matches `LANG`:**
+
+**If `LANG='cn'` (Chinese headers):**
+
+```html
+<table>
+  <tr>
+    <th colspan="8" style="background:#e0f0ff;">综合汇总</th>
+  </tr>
+  <tr>
+    <td style="valign:top;border:1px solid #ccc;padding:3px 5px;min-width:70px"><b>日期</b></td>
+    <td style="valign:top;border:1px solid #ccc;padding:3px 5px;min-width:70px"><b>整体</b></td>
+    <td style="valign:top;border:1px solid #ccc;padding:3px 5px;min-width:70px"><b>最长回合</b></td>
+    <td style="valign:top;border:1px solid #ccc;padding:3px 5px;min-width:70px"><b>5+回合%</b></td>
+    <td style="valign:top;border:1px solid #ccc;padding:3px 5px;min-width:70px"><b>正手%</b></td>
+    <td style="valign:top;border:1px solid #ccc;padding:3px 5px;min-width:70px"><b>正手速度</b></td>
+    <td style="valign:top;border:1px solid #ccc;padding:3px 5px;min-width:70px"><b>反手%</b></td>
+    <td style="valign:top;border:1px solid #ccc;padding:3px 5px;min-width:70px"><b>反手速度</b></td>
+  </tr>
+</table>
+
+<table>
+  <tr>
+    <th colspan="13" style="background:#e0f0ff;">PLAYER_A</th>
+  </tr>
+  <tr>
+    <td ...><b>日期</b></td>
+    <td ...><b>整体</b></td>
+    <td ...><b>最长回合</b></td>
+    <td ...><b>5+回合%</b></td>
+    <td ...><b>正手%</b></td>
+    <td ...><b>正手速度</b></td>
+    <td ...><b>反手%</b></td>
+    <td ...><b>反手速度</b></td>
+    <td ...><b>左</b></td>
+    <td ...><b>中</b></td>
+    <td ...><b>右</b></td>
+    <td ...><b>深</b></td>
+    <td ...><b>浅</b></td>
+  </tr>
+</table>
+
+<table>
+  <tr>
+    <th colspan="13" style="background:#e0f0ff;">PLAYER_B</th>
+  </tr>
+  <!-- same header row as PLAYER_A -->
+</table>
+```
+
+**If `LANG='en'` (English headers):**
 
 ```html
 <table>
@@ -176,7 +253,7 @@ If no matching note is found, **automatically create a new one** — do not stop
 </table>
 ```
 
-Replace `PLAYER_A` and `PLAYER_B` with the actual player codes. If YZ is a player, add a **Heart Rate** column (`HR`) after BH Spd in all three tables (YZ wears an Apple Watch during training).
+Replace `PLAYER_A` and `PLAYER_B` with the actual player codes. If YZ is a player, add a **Heart Rate** column (`心率` for `cn` / `HR` for `en`) after the speed columns in all three tables (YZ wears an Apple Watch during training).
 
 Create the note with `add_note`, then proceed to insert the session row.
 
@@ -193,11 +270,28 @@ Every tennis note contains three HTML tables:
 
 The table heading matches the player code exactly (e.g. `XT`, `YZ`, `JM`, `LW`).
 
-**Column order:**
+**Column order (use the header text that matches `LANG`):**
 
-Summary: `Date | Overall | Longest | Rallies 5+ | FH% | FH Spd | BH% | BH Spd`
+| Column | `LANG='cn'` | `LANG='en'` |
+|---|---|---|
+| Session date | 日期 | Date |
+| Overall success rate | 整体 | Overall |
+| Longest rally | 最长回合 | Longest |
+| Rallies 5+ pct | 5+回合% | Rallies 5+ |
+| Forehand % | 正手% | FH% |
+| Forehand speed | 正手速度 | FH Spd |
+| Backhand % | 反手% | BH% |
+| Backhand speed | 反手速度 | BH Spd |
+| Heart rate (YZ only) | 心率 | HR |
+| Landing left | 左 | L |
+| Landing center | 中 | C |
+| Landing right | 右 | R |
+| Landing deep | 深 | Deep |
+| Landing shallow | 浅 | Shallow |
 
-Per-player: same + `L | C | R | Deep | Shallow`  (+ `HR` column if YZ is a player)
+Summary columns: date → overall → longest → rallies5+ → FH% → FH speed → BH% → BH speed (+ HR if YZ)
+
+Per-player columns: same as summary + left → center → right → deep → shallow
 
 ### Step 4: Insert the new row
 
