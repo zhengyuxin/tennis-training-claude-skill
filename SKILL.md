@@ -38,6 +38,8 @@ This skill handles a three-phase workflow. Each phase can be run independently o
 
 Apply this to both `generate_pdf.py` and `generate_pdf_mobile.py`. Do not ask the user to specify a language manually.
 
+**All dynamically generated text — including the Analysis & Insights paragraphs (section 7) and Training Recommendations (section 8) — must also be written in the selected language.** If `LANG='en'`, write all analysis prose and training plan text in English. If `LANG='cn'`, write in Chinese.
+
 ---
 
 ## Phase 1 – Data Extraction from Screenshots
