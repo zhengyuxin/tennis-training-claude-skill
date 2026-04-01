@@ -2,142 +2,214 @@
 name: tennis-report
 description: >
   Use this skill whenever the user wants to: (1) extract tennis training data
-  from app screenshots and save it to Apple Notes, (2) update existing training
-  records, or (3) generate a Chinese PDF training report with charts and analysis.
+  from SwingVision screenshots and save it to Apple Notes, (2) update existing
+  training records, or (3) generate a PDF training report with charts and analysis.
 
   Trigger on any of these cues: tennis training / 网球训练, screenshots from a
-  swing sensor app (Swing Vision, SwingVision, 挥拍), "提取数据", "更新note",
-  "生成报告", "训练报告", "网球PDF", landing distribution / 落点分布, forehand /
-  backhand success rate / 正反手成功率. Trigger even when only one part of the
-  workflow is requested (e.g. "just extract the data" or "only generate the PDF").
+  swing sensor app (SwingVision, Swing Vision, 挥拍), "extract data" / "提取数据",
+  "update note" / "更新note", "generate report" / "生成报告", "training report" /
+  "训练报告", "tennis PDF" / "网球PDF", landing distribution / 落点分布, forehand /
+  backhand success rate / 正反手成功率.
+
+  Trigger even when only one part of the workflow is requested
+  (e.g. "just extract the data" or "only generate the PDF").
 ---
 
-# Tennis Training Report Skill
+# SwingVision Tennis Training Skill
 
 ## Overview
 
 This skill handles a three-phase workflow. Each phase can be run independently or all together:
 
-1. **Extract** – read numerical data from tennis app screenshots
-2. **Update Apple Notes** – persist the data in a structured HTML table note
-3. **Generate PDF** – produce two Chinese-language PDF reports (desktop + mobile)
+1. **Extract** – read numerical data from SwingVision screenshots
+2. **Store** – persist the data in a structured Apple Notes HTML table
+3. **Generate PDF** – produce two PDF reports (desktop A4 + mobile), in the appropriate language
+
+---
+
+## Language selection — automatic
+
+**Detect the user's language from their message and set `LANG` accordingly before running any script:**
+
+| User writes in | Set `LANG` |
+|---|---|
+| Chinese (any Chinese characters present) | `'cn'` |
+| English | `'en'` |
+
+Apply this to both `generate_pdf.py` and `generate_pdf_mobile.py`. Do not ask the user to specify a language manually.
 
 ---
 
 ## Phase 1 – Data Extraction from Screenshots
 
-### What data to look for
+### Metrics to extract
 
-The screenshots come from a swing-sensor tennis app (e.g. Swing Vision). Each session screen typically shows two views, toggled by a player button. Key metrics:
-
-| Field | Chinese label | Notes |
+| Field | App label (CN) | Description |
 |---|---|---|
-| 整体成功率 | 整体 | Overall success % |
-| 正手成功率 | 正手 | Forehand success % |
-| 反手成功率 | 反手 | Backhand success % |
-| 正手速度 | 正手速度 | Forehand avg speed km/h |
-| 反手速度 | 反手速度 | Backhand avg speed km/h |
-| 最长回合 | 最长回合 | Longest rally (strokes) |
-| 超过5回合 | 超过5回合 | % rallies > 5 strokes |
-| 落点左/中/右 | 落点分布 | Landing zone: left / center / right % |
-| 落点深/浅 | 落点深浅 | Landing zone: deep / shallow % |
+| Overall | 整体 | Overall success rate % |
+| Forehand | 正手 | Forehand success rate % |
+| Backhand | 反手 | Backhand success rate % |
+| FH Speed | 正手速度 | Forehand average speed km/h |
+| BH Speed | 反手速度 | Backhand average speed km/h |
+| Longest Rally | 最长回合 | Longest rally in strokes |
+| Rallies 5+ | 超过5回合 | % of rallies lasting more than 5 strokes |
+| L / C / R | 落点分布 | Landing zone: left / center / right % |
+| Deep / Shallow | 落点深浅 | Landing zone: deep / shallow % |
 
-### ⚠️ Critical rule: reading deep vs shallow from the court diagram
+### ⚠️ Critical rule: reading Deep vs Shallow from the court diagram
 
-The landing distribution screen shows a top-down court diagram. Three horizontal percentage numbers (left / center / right) appear clustered at **one end** of the court — this marks where that player's shots land (their **opponent's** side). Two vertical numbers (deep % and shallow %) appear on the **left side** of the diagram.
+The landing distribution screen shows a top-down court diagram. Three horizontal percentages (left / center / right) are clustered at **one end** of the court — that end marks where the highlighted player's shots land (the opponent's side). Two vertical percentages (deep % and shallow %) appear on the **left edge** of the diagram.
 
-**The position of the three horizontal numbers tells you which vertical number is 深区:**
+**The position of the three horizontal numbers determines which vertical number is Deep:**
 
 | Where horizontal numbers appear | Upper vertical % | Lower vertical % |
 |---|---|---|
-| **At the TOP** of the court diagram | 深区 (deep) | 浅区 (shallow) |
-| **At the BOTTOM** of the court diagram | 浅区 (shallow) | 深区 (deep) |
+| **At the TOP** of the court diagram | Deep | Shallow |
+| **At the BOTTOM** of the court diagram | Shallow | Deep |
 
-**Why:** The court diagram is oriented from the highlighted player's perspective. When their shots land near the top of the diagram, that's the far (deep) end of the opponent's court.
+**Why:** The diagram is oriented from the highlighted player's perspective. Shots landing near the top of the diagram go to the far (deep) end of the opponent's court.
 
-**Do NOT rely on the player's name to infer deep vs shallow.** Always use the visual position of the horizontal numbers as the ground truth. The same player may appear at the top in one screenshot and the bottom in another depending on app orientation.
+**Do NOT infer deep/shallow from the player's name.** Always use the visual position of the horizontal numbers as ground truth. The same player may appear at the top in one screenshot and the bottom in another depending on app orientation.
 
 **Verified example (2026-03-20 session):**
-- YZ screenshot: horizontal numbers at TOP → upper vertical % = 深区
-- LW screenshot: horizontal numbers at BOTTOM → lower vertical % = 深区
+- YZ screenshot: horizontal numbers at TOP → upper vertical % = Deep
+- LW screenshot: horizontal numbers at BOTTOM → lower vertical % = Deep
 
-### ✅ Validation checks — run before writing to note or PDF
+### ✅ Validation checks — run before writing to Notes or PDF
 
-After extracting landing distribution data for each player, verify:
+After extracting landing distribution for each player, verify:
 
-1. **左/中/右 sum check:** 落点左 + 落点中 + 落点右 must equal **98, 99, or 100**.
-2. **深/浅 sum check:** 落点深 + 落点浅 must equal **98, 99, or 100**.
+1. **L + C + R sum:** Left + Center + Right must equal **98, 99, or 100**
+2. **Deep + Shallow sum:** Deep + Shallow must equal **98, 99, or 100**
 
-The app rounds each percentage independently, so a sum of 98 is a normal rounding artifact — accept it as-is without asking the user to correct it. Only flag sums outside the 98–100 range.
+The app rounds each percentage independently. A sum of 98 is a normal rounding artifact — accept it without flagging. Only alert for sums **outside** the 98–100 range.
 
-If either check falls **outside** 98–100, **stop and alert the user before proceeding:**
+If either check fails, **stop and alert the user:**
 
-> ⚠️ 数据校验失败：[玩家名] 的落点数据加和异常
-> - 落点左 + 落点中 + 落点右 = [实际加和]（期望 98–100）
-> - 落点深 + 落点浅 = [实际加和]（期望 98–100）
+> ⚠️ Validation failed: [Player]'s landing zone data does not sum correctly.
+> - Left + Center + Right = [actual sum] (expected 98–100)
+> - Deep + Shallow = [actual sum] (expected 98–100)
 >
-> 可能是图像识别错误，请人工核查截图后再继续。
+> This may be a misread. Please check the screenshot manually before continuing.
 
 Do **not** write the row to Apple Notes or generate the PDF until the user confirms the data is correct.
 
-### Extraction approach
+### Extraction steps
 
-1. For each player's landing distribution screenshot, identify which player is highlighted (the button UI shows which is active)
-2. Locate the three horizontal numbers (left/center/right) and note whether they are at the **TOP** or **BOTTOM** of the court diagram
-3. Use the visual position rule above to determine which vertical number is 深区 and which is 浅区
-4. Note the date of the session (shown on the screenshot or provided by the user)
-5. Extract all numeric values; record as integers (drop the % symbol)
-6. Run the validation checks on 左+中+右 and 深+浅 sums — alert user and stop if either fails (98 is acceptable, do not flag it)
+1. For each player's landing distribution screenshot, identify which player is highlighted (the toggle button UI shows which is active)
+2. Locate the three horizontal numbers (L/C/R) and note whether they are at the **TOP** or **BOTTOM** of the court diagram
+3. Apply the visual position rule to determine which vertical number is Deep and which is Shallow
+4. Note the session date (from the screenshot or user-provided)
+5. Extract all values as integers (strip the % symbol)
+6. Run the L+C+R and Deep+Shallow validation checks before proceeding
 
 ---
 
-## Phase 2 – Update Apple Notes
+## Phase 2 – Store in Apple Notes
 
-### Step 1: Identify the players and find the right note
+### Step 1: Identify players and find the right note
 
-Each session involves exactly two players. Their codes appear as toggle buttons in the app screenshots (e.g. "YZ", "XT", "JM", "LW").
+Each session involves exactly two players. Their codes appear as toggle buttons in the screenshots (e.g. "YZ", "XT", "JM", "LW").
 
-**How to identify the note to update:**
+1. Read the two player codes from the screenshots
+2. Call `list_notes` to get all notes
+3. Find the note whose name contains **both** player codes (case-insensitive). Note names follow the pattern `YZ&XT 🎾` — no spaces around `&`. Examples:
+   - Players YZ + XT → **"YZ&XT 🎾"**
+   - Players YZ + JM → **"YZ&JM 🎾"**
+   - Players YZ + LW → **"YZ&LW 🎾"**
 
-1. From the screenshots, read the two player codes shown in the session (the player toggle UI).
-2. Call `list_notes` to get all notes.
-3. Find the note whose name contains **both** player codes (case-insensitive). Note names use no spaces around `&`. Examples:
-   - Players YZ + XT → note **"YZ&XT 🎾"**
-   - Players YZ + JM → note **"YZ&JM 🎾"**
-   - Players YZ + LW → note **"YZ&LW 🎾"**
-4. If no note matches, alert the user before proceeding.
+### Step 2: Auto-create the note if it does not exist
 
-### Step 2: Read and update the note
+If no matching note is found, **automatically create a new one** — do not stop to ask the user.
 
-Use `get_note_content` to read the current note before updating.
+**Naming rule:**
+- If YZ is one of the players: `YZ&[other] 🎾` (YZ always first)
+- Otherwise: alphabetical order, e.g. `AB&CD 🎾`
+
+**Note template to use when creating:**
+
+```html
+<table>
+  <tr>
+    <th colspan="8" style="background:#e0f0ff;">Summary</th>
+  </tr>
+  <tr>
+    <td style="valign:top;border:1px solid #ccc;padding:3px 5px;min-width:70px"><b>Date</b></td>
+    <td style="valign:top;border:1px solid #ccc;padding:3px 5px;min-width:70px"><b>Overall</b></td>
+    <td style="valign:top;border:1px solid #ccc;padding:3px 5px;min-width:70px"><b>Longest</b></td>
+    <td style="valign:top;border:1px solid #ccc;padding:3px 5px;min-width:70px"><b>Rallies 5+</b></td>
+    <td style="valign:top;border:1px solid #ccc;padding:3px 5px;min-width:70px"><b>FH%</b></td>
+    <td style="valign:top;border:1px solid #ccc;padding:3px 5px;min-width:70px"><b>FH Spd</b></td>
+    <td style="valign:top;border:1px solid #ccc;padding:3px 5px;min-width:70px"><b>BH%</b></td>
+    <td style="valign:top;border:1px solid #ccc;padding:3px 5px;min-width:70px"><b>BH Spd</b></td>
+  </tr>
+</table>
+
+<table>
+  <tr>
+    <th colspan="13" style="background:#e0f0ff;">PLAYER_A</th>
+  </tr>
+  <tr>
+    <td ...><b>Date</b></td>
+    <td ...><b>Overall</b></td>
+    <td ...><b>Longest</b></td>
+    <td ...><b>Rallies 5+</b></td>
+    <td ...><b>FH%</b></td>
+    <td ...><b>FH Spd</b></td>
+    <td ...><b>BH%</b></td>
+    <td ...><b>BH Spd</b></td>
+    <td ...><b>L</b></td>
+    <td ...><b>C</b></td>
+    <td ...><b>R</b></td>
+    <td ...><b>Deep</b></td>
+    <td ...><b>Shallow</b></td>
+  </tr>
+</table>
+
+<table>
+  <tr>
+    <th colspan="13" style="background:#e0f0ff;">PLAYER_B</th>
+  </tr>
+  <!-- same header row as PLAYER_A -->
+</table>
+```
+
+Replace `PLAYER_A` and `PLAYER_B` with the actual player codes. If YZ is a player, add a **Heart Rate** column (`HR`) after BH Spd in all three tables (YZ wears an Apple Watch during training).
+
+Create the note with `add_note`, then proceed to insert the session row.
+
+### Step 3: Read and update the note
+
+Call `get_note_content` to read the current note before updating.
 
 ### Note structure
 
 Every tennis note contains three HTML tables:
-- **综合** — one row per session, overall stats for both players combined
-- **[Player A code]** — per-session detailed stats for player A
-- **[Player B code]** — per-session detailed stats for player B
+- **Summary** — one row per session, overall combined stats
+- **[Player A]** — per-session detailed stats for player A
+- **[Player B]** — per-session detailed stats for player B
 
-The table heading text matches the player code exactly (e.g. `XT`, `YZ`, `JM`, `LW`). Use this to locate the right table.
+The table heading matches the player code exactly (e.g. `XT`, `YZ`, `JM`, `LW`).
 
-**Column order (all three tables):**
+**Column order:**
 
-综合: `日期 | 整体 | 最长回合 | 超过5回合 | 正手 | 正手速度 | 反手 | 反手速度`
+Summary: `Date | Overall | Longest | Rallies 5+ | FH% | FH Spd | BH% | BH Spd`
 
-Per-player tables: same columns plus `落点左 | 落点中 | 落点右 | 落点深 | 落点浅`
+Per-player: same + `L | C | R | Deep | Shallow`  (+ `HR` column if YZ is a player)
 
-### Step 3: Insert the new row
+### Step 4: Insert the new row
 
-1. Find the correct table for each section (综合 + two player tables)
-2. Insert a **new `<tr>` row** for the new session — do **not** overwrite existing rows
-3. Preserve all existing cell styles exactly: `valign="top" style="border-style: solid; border-width: 1.0px 1.0px 1.0px 1.0px; border-color: #ccc; padding: 3.0px 5.0px 3.0px 5.0px; min-width: 70px"`
-4. Use `update_note_content` with the full updated HTML
+1. Locate the correct table for each section (Summary + two player tables)
+2. Insert a **new `<tr>` row** — do **not** overwrite existing rows
+3. Preserve all existing cell styles exactly:
+   `valign="top" style="border-style: solid; border-width: 1.0px 1.0px 1.0px 1.0px; border-color: #ccc; padding: 3.0px 5.0px 3.0px 5.0px; min-width: 70px"`
+4. Call `update_note_content` with the full updated HTML
 
 ---
 
-## Phase 3 – Generate Chinese PDF Reports (Desktop + Mobile)
+## Phase 3 – Generate PDF Reports (Desktop + Mobile)
 
-Always generate **two PDF files** — one optimized for desktop/print and one for mobile reading. Use the bundled scripts as starting templates; do not start from scratch.
+Always generate **two PDF files** — desktop A4 and mobile. Use the bundled scripts as templates; do not rewrite from scratch.
 
 ### Quick start
 
@@ -145,114 +217,120 @@ Always generate **two PDF files** — one optimized for desktop/print and one fo
 # Install dependencies if needed
 pip install reportlab matplotlib --break-system-packages -q
 
-# Edit the DATA section at the top of each script, then run both:
-python scripts/generate_pdf_cn.py       # desktop version
-python scripts/generate_pdf_mobile.py  # mobile version
+# Set LANG at the top of each script, then run:
+python scripts/generate_pdf.py          # desktop A4
+python scripts/generate_pdf_mobile.py  # mobile (single-column, larger fonts)
 ```
 
-### Data section to update (same for both scripts)
+### Step 1: Set the language
 
-At the top of each script, update the `DATES`, `XT`, and `YZ` dicts with all historical session data:
+At the top of **both** scripts, set the `LANG` variable based on the user's language (see Language selection section above):
 
 ```python
-DATES = ["12/30", "2/10", "3/3"]   # add new dates here
-XT = dict(
-    整体      = [89, 87, 85],      # one value per session
-    正手      = [90, 87, 87],
-    # ... etc
+LANG = 'cn'   # or 'en'
+```
+
+This single switch controls all chart labels, axis titles, section headings, table headers, insight text, training plan items, and the output filename.
+
+### Step 2: Update the data section
+
+Update `DATES`, `P1_CODE`, `P1`, and `YZ` dicts with the full session history:
+
+```python
+DATES   = ["12/30", "2/10", "3/3", "3/24"]  # all session dates (MM/DD)
+P1_CODE = "XT"                                # partner player code
+
+P1 = dict(
+    整体      = [89, 87, 85, 88],   # one value per session
+    正手      = [90, 87, 87, 90],
+    反手      = [84, 86, 71, 79],
+    正手速度  = [68, 68, 69, 72],
+    反手速度  = [65, 64, 67, 65],
+    最长回合  = [118, 79, 58, 48],
+    超过5回合 = [72, 71, 61, 63],
+    落点左    = [11, 14, 17, 18],
+    落点中    = [64, 67, 59, 60],
+    落点右    = [24, 18, 23, 21],
+    落点深    = [59, 64, 64, 62],
+    落点浅    = [40, 35, 35, 37],
+)
+YZ = dict(
+    # same structure
 )
 ```
 
+> Note: the dict keys remain in Chinese (they are internal field names used by both scripts). Only the output text — chart labels, section headers, insight text — changes with `LANG`.
+
 ### Font setup (do not change)
 
-Both scripts use a **dual-font approach** that fixes the "numbers don't render" problem:
+Both scripts use a **dual-font system** that ensures correct rendering for both Chinese and Latin/digit characters:
 
-- **ReportLab** – registers `LiberationSans` (Latin/digits) as `LAT` and `DroidSansFallbackFull` (CJK) as `CN`. The `mix()` helper function automatically wraps each run of text in the correct `<font name="...">` tag.
-- **Matplotlib** – sets `font.family = ['DejaVu Sans', 'Droid Sans Fallback']` as a fallback chain; DejaVu handles ASCII/numbers, Droid handles CJK. Do **not** pass `fontproperties=prop` to mixed-content labels — let the fallback chain work automatically.
+- **ReportLab** registers `DroidSansFallbackFull` as `CN` and `LiberationSans` as `LAT`/`LATB`. The `mix()` helper wraps each text run in the correct font tag automatically.
+- **Matplotlib** uses `font.family = ['Liberation Sans', 'Droid Sans Fallback']` for English, `['DejaVu Sans', 'Droid Sans Fallback']` for Chinese. Do **not** pass `fontproperties=` to mixed-content labels.
 
-Font paths (Ubuntu/Debian VM):
+Font paths (Ubuntu/Debian sandbox):
 - `/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf`
 - `/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf`
+- `/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf`
 
-### Output file naming
+### Output filenames
 
-Both filenames include the **date of the latest training session** (`YYYYMMDD`):
+Both scripts auto-derive the date string from `DATES[-1]`. The `LANG` switch also controls the filename suffix:
 
-- Desktop: `<playerA>_<playerB>_网球训练报告_<YYYYMMDD>.pdf`
-- Mobile:  `<playerA>_<playerB>_网球训练报告_手机版_<YYYYMMDD>.pdf`
+| Version | LANG='cn' | LANG='en' |
+|---|---|---|
+| Desktop | `YZ_XT_Tennis_Report_20260324.pdf` | `YZ_XT_Tennis_Report_EN_20260324.pdf` |
+| Mobile  | `YZ_XT_Tennis_Report_Mobile_20260324.pdf` | `YZ_XT_Tennis_Report_Mobile_EN_20260324.pdf` |
 
-Example for a 3/24 session: `YZ_XT_网球训练报告_20260324.pdf` and `YZ_XT_网球训练报告_手机版_20260324.pdf`
+### Desktop vs Mobile layout
 
-The scripts derive the date string automatically from `DATES[-1]` using the bundled `date_to_filestr()` helper. The session root and output directory are also auto-detected from `__file__`, so no manual path editing is needed. The **PDF title** (the large headline at the top of the report) also includes the Chinese date: `🎾  YZ & XT  网球训练报告  ·  2026年3月24日`.
-
-### Desktop vs Mobile layout differences
-
-The mobile version (`generate_pdf_mobile.py`) is adapted from the desktop script with these changes:
-
-| Aspect | Desktop | Mobile |
+| Aspect | Desktop (`generate_pdf.py`) | Mobile (`generate_pdf_mobile.py`) |
 |---|---|---|
 | Margins | 20mm left/right | 10mm left/right |
-| Layout | Two-column (side-by-side) | **Single column throughout** |
-| Body font size | 10pt | 12pt |
-| Chart height ratio | ~0.38 | ~0.55 (taller = easier to read on phone) |
-| Summary cards | XT and YZ side-by-side | Stacked vertically |
-| Training plan | XT and YZ side-by-side | Stacked vertically |
-| Data table font | 8.5pt | 10pt |
+| Layout | Two-column (side-by-side cards) | **Single column throughout** |
+| Body font | 10pt | 12pt |
+| Chart height ratio | ~0.38 | ~0.55 (taller for phone screens) |
+| Summary cards | P1 and YZ side-by-side | Stacked vertically |
+| Training plan | P1 and YZ side-by-side | Stacked vertically |
 
-The analysis text, insights, and recommendations are the same in both versions.
-
-**When adapting the mobile script**, the main changes are:
-- Set `leftMargin=rightMargin=10*mm`
-- Replace all `Table([[xt_card, yz_card]], colWidths=[half, half])` with `[xt_card, Spacer(1,8), yz_card]` (vertical stack in the story)
-- Increase `h_ratio` in `img()` calls from 0.38/0.34/0.44 to 0.55/0.50/0.60
-- Increase base font sizes in `sty()` defaults and specific styles
-
-### Step 4: Present both files
-
-After generating both PDFs, use `present_files` to share both with the user:
-
-```python
-# present_files([
-#   {"file_path": ".../YZ_XT_网球训练报告.pdf"},
-#   {"file_path": ".../YZ_XT_网球训练报告_手机版.pdf"},
-# ])
-```
-
-### Report sections (in order, same for both versions)
+### Report sections (same order for both versions)
 
 1. Header + subtitle (training period, session count, goal)
-2. Summary cards (latest metrics for each player)
+2. Latest session summary cards (one per player)
 3. Charts:
-   - 正手 & 反手成功率趋势 (line chart, with target reference lines: forehand 90%, backhand 85%)
-   - 击球速度趋势
-   - 回合稳定性趋势 (dual Y-axis: 超过5回合 % and 最长回合)
-   - 落点分布 XT (bar charts: left/center/right and deep/shallow; numeric label on top of every bar)
-   - 落点分布 YZ
-   - 综合雷达图 (radar, latest session only)
-4. 完整训练数据 (tables for XT and YZ; highlight backhand < 82% in red)
-5. 数据分析 & Insights (per-player observations + shared trends)
-6. 训练建议 (prioritized training recommendations per player)
+   - Forehand & Backhand success rate trends (line chart; reference lines at FH 90%, BH 85%)
+   - Shot speed trends
+   - Rally stability trends (dual Y-axis: Rallies 5+% and Longest Rally)
+   - Landing zone distribution — P1 (bar charts: L/C/R and Deep/Shallow; values labelled on bars)
+   - Landing zone distribution — YZ
+   - Performance radar chart (latest session only)
+4. Full training data tables (P1 and YZ; backhand < 82% highlighted in red)
+5. Analysis & Insights (per-player observations + shared trends)
+6. Training recommendations (prioritised, per player)
 7. Footer
 
 ### Analysis guidelines
 
-When writing insights, focus on the user's stated goal: **增强正手和反手的稳定性** (improve forehand and backhand stability). Key patterns to surface:
+Focus on the training goal: **improve forehand and backhand stability**. Key patterns to surface:
 
-- Speed vs stability tradeoff: if success rate drops while speed rises, flag it immediately
-- Backhand is typically the weaker stroke — watch for rates below 82–85%
-- Landing distribution drift (e.g. left-zone creep for XT) = actionable drill suggestion
-- Rally decline (超过5回合 %, 最长回合) is a shared indicator worth noting together
-- YZ forehand is the gold standard example: high speed + high stability
+- **Speed vs stability tradeoff:** if success rate drops while speed rises, flag it immediately
+- **Backhand threshold:** rates below 82–85% warrant a warning
+- **Landing drift:** if one zone exceeds ~20% consistently, suggest targeted drills
+- **Rally decline:** drop in Rallies 5+% or Longest Rally is a shared signal — note together
+- **YZ forehand** is the benchmark: high speed + high stability maintained simultaneously
 
-Always use **XT** and **YZ** (not inferred Chinese names) throughout the report.
+Always refer to players by their codes (e.g. `XT`, `YZ`) — never infer or use Chinese names.
 
----
+### Step 3: Present both files
 
-## Player context
+After generating, share both PDFs with the user:
 
-- **XT** – tends to sacrifice backhand stability when chasing speed. Landing distribution drifts left over time. Deep zone control has been improving.
-- **YZ** – very stable forehand (consistent ~90%+). Backhand slightly more volatile. Landing tends to cluster in center — could use more angle variation.
-- **Shared** – longest rally and 5+ rally % are both declining across sessions, suggesting a need for dedicated multi-ball stability drills.
+```python
+present_files([
+    {"file_path": ".../YZ_XT_Tennis_Report_20260324.pdf"},
+    {"file_path": ".../YZ_XT_Tennis_Report_Mobile_20260324.pdf"},
+])
+```
 
 ---
 
@@ -260,9 +338,17 @@ Always use **XT** and **YZ** (not inferred Chinese names) throughout the report.
 
 | Symptom | Fix |
 |---|---|
-| Numbers missing in PDF | Ensure `mix()` is applied to all `Paragraph()` calls; check LAT font is registered |
+| Numbers missing or garbled in PDF | Ensure `mix()` wraps all `Paragraph()` text; confirm `LAT` font is registered |
 | `got multiple values for keyword argument 'fontSize'` | Use defaults-dict pattern in `sty()`: `defaults = dict(...); defaults.update(kw); return ParagraphStyle(name, **defaults)` |
-| CJK missing from matplotlib charts | Use `font.family = ['DejaVu Sans', 'Droid Sans Fallback']` in rcParams; do not use `fontproperties=prop` on mixed labels |
-| 深/浅 looks reversed | Re-read the critical rule: check whether horizontal numbers are at TOP or BOTTOM of court diagram |
-| Validation sum outside 98–100 | Stop and flag to user — sums of 98 are normal rounding and should be accepted automatically |
-| PDF filename missing date | `date_to_filestr(DATES[-1])` derives the date from the last entry in `DATES`. Ensure `DATES` is updated with the current session date before running the script |
+| CJK characters missing from charts | Use `font.family = ['DejaVu Sans', 'Droid Sans Fallback']` in rcParams; do not use `fontproperties=prop` on mixed-content labels |
+| Deep/Shallow values look reversed | Re-check the critical rule: are the horizontal L/C/R numbers at TOP or BOTTOM of the court diagram? |
+| Validation sum outside 98–100 | Stop and alert the user with the actual sum values; a sum of exactly 98 is normal and should be accepted silently |
+| PDF filename missing date | Confirm `DATES` includes the current session date; `date_to_filestr(DATES[-1])` auto-derives the filename suffix |
+
+---
+
+## Player context (for insight generation)
+
+- **P1 / partner** – typically sacrifices backhand stability when chasing speed. Landing distribution may drift left over time. Deep zone control has been improving.
+- **YZ** – very stable forehand (consistently ~90%+). Backhand slightly more volatile. Landing tends to cluster in the center zone — angle variation is a useful drill focus.
+- **Shared** – Longest Rally and Rallies 5+% often decline together across sessions, signalling a need for dedicated multi-shot rally drills.
