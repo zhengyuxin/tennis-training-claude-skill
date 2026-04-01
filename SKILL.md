@@ -44,17 +44,17 @@ Apply this to both `generate_pdf.py` and `generate_pdf_mobile.py`. Do not ask th
 
 ### Metrics to extract
 
-| Field | App label (CN) | Description |
-|---|---|---|
-| Overall | 整体 | Overall success rate % |
-| Forehand | 正手 | Forehand success rate % |
-| Backhand | 反手 | Backhand success rate % |
-| FH Speed | 正手速度 | Forehand average speed km/h |
-| BH Speed | 反手速度 | Backhand average speed km/h |
-| Longest Rally | 最长回合 | Longest rally in strokes |
-| Rallies 5+ | 超过5回合 | % of rallies lasting more than 5 strokes |
-| L / C / R | 落点分布 | Landing zone: left / center / right % |
-| Deep / Shallow | 落点深浅 | Landing zone: deep / shallow % |
+| Field | App label (EN) | App label (CN) | Description |
+|---|---|---|---|
+| Overall | Overall | 整体 | Overall success rate % |
+| Forehand | Forehand | 正手 | Forehand success rate % |
+| Backhand | Backhand | 反手 | Backhand success rate % |
+| FH Speed | Forehand Speed | 正手速度 | Forehand average speed km/h |
+| BH Speed | Backhand Speed | 反手速度 | Backhand average speed km/h |
+| Longest Rally | Longest Rally | 最长回合 | Longest rally in strokes |
+| Rallies 5+ | Rallies 5+ | 超过5回合 | % of rallies lasting more than 5 strokes |
+| L / C / R | Left / Center / Right | 落点分布 | Landing zone: left / center / right % |
+| Deep / Shallow | Deep / Shallow | 落点深浅 | Landing zone: deep / shallow % |
 
 ### ⚠️ Critical rule: reading Deep vs Shallow from the court diagram
 
