@@ -85,24 +85,28 @@ Do not ask the user to choose a language. Do not mix languages within a single o
 | L / C / R | Left / Center / Right | 落点分布 | Landing zone: left / center / right % |
 | Deep / Shallow | Deep / Shallow | 落点深浅 | Landing zone: deep / shallow % |
 
-### ⚠️ Critical rule: reading Deep vs Shallow from the court diagram
+### ⚠️ Critical rule: reading the court diagram orientation
 
 The landing distribution screen shows a top-down court diagram. Three horizontal percentages (left / center / right) are clustered at **one end** of the court — that end marks where the highlighted player's shots land (the opponent's side). Two vertical percentages (deep % and shallow %) appear on the **left edge** of the diagram.
 
-**The position of the three horizontal numbers determines which vertical number is Deep:**
+**The position of the three horizontal numbers determines the correct reading for ALL three axes (Deep/Shallow AND Left/Right):**
 
-| Where horizontal numbers appear | Upper vertical % | Lower vertical % |
+| Where horizontal numbers appear | Deep/Shallow | Left/Right |
 |---|---|---|
-| **At the TOP** of the court diagram | Deep | Shallow |
-| **At the BOTTOM** of the court diagram | Shallow | Deep |
+| **At the TOP** of the court diagram | Upper % = Deep, Lower % = Shallow | Read as-is (Left=Left, Right=Right) |
+| **At the BOTTOM** of the court diagram | Upper % = Shallow, Lower % = Deep | **Swap L and R** (displayed Left = actual Right, displayed Right = actual Left) |
 
-**Why:** The diagram is oriented from the highlighted player's perspective. Shots landing near the top of the diagram go to the far (deep) end of the opponent's court.
+**Why both axes flip at the BOTTOM:** When the highlighted player's shots land at the bottom of the diagram, the diagram is effectively showing the court from the opponent's perspective. This reverses the deep/shallow axis (shots near the bottom are deep, not shallow) **and** mirrors the left/right axis (the player's physical left corresponds to the diagram's right side, and vice versa). Both reversals happen simultaneously.
 
-**Do NOT infer deep/shallow from the player's name.** Always use the visual position of the horizontal numbers as ground truth. The same player may appear at the top in one screenshot and the bottom in another depending on app orientation.
+**Rule summary:**
+- TOP: use all numbers as displayed — Deep = upper %, Left = left %, Right = right %
+- BOTTOM: Deep = lower %, Shallow = upper %; **and** Left = displayed right %, Right = displayed left %
 
-**Verified example (2026-03-20 session):**
-- YZ screenshot: horizontal numbers at TOP → upper vertical % = Deep
-- LW screenshot: horizontal numbers at BOTTOM → lower vertical % = Deep
+**Do NOT infer orientation from the player's name or position.** Always use the visual position of the horizontal numbers as ground truth. The same player may appear at the top in one screenshot and the bottom in another depending on app orientation.
+
+**Verified examples:**
+- 2026-03-20 session, YZ: horizontal numbers at TOP → use all values as-is
+- 2026-03-20 session, LW: horizontal numbers at BOTTOM → Deep = lower vertical %; displayed L/C/R = 12/64/23 → actual L/C/R = 23/64/12
 
 ### ✅ Validation checks — run before writing to Notes or PDF
 
@@ -437,9 +441,15 @@ present_files([
 | Numbers missing or garbled in PDF | Ensure `mix()` wraps all `Paragraph()` text; confirm `LAT` font is registered |
 | `got multiple values for keyword argument 'fontSize'` | Use defaults-dict pattern in `sty()`: `defaults = dict(...); defaults.update(kw); return ParagraphStyle(name, **defaults)` |
 | CJK characters missing from charts | Use `font.family = ['DejaVu Sans', 'Droid Sans Fallback']` in rcParams; do not use `fontproperties=prop` on mixed-content labels |
-| Deep/Shallow values look reversed | Re-check the critical rule: are the horizontal L/C/R numbers at TOP or BOTTOM of the court diagram? |
+| Deep/Shallow or Left/Right values look reversed | Re-check the critical rule: are the horizontal L/C/R numbers at TOP or BOTTOM of the court diagram? BOTTOM flips both axes simultaneously — deep/shallow AND left/right. |
 | Validation sum outside 98–100 | Stop and alert the user with the actual sum values; a sum of exactly 98 is normal and should be accepted silently |
 | PDF filename missing date | Confirm `DATES` includes the current session date; `date_to_filestr(DATES[-1])` auto-derives the filename suffix |
+| `<b>` tags appear as literal text in PDF insights | `mix()` HTML-escapes `<` and `>`, so never pass markup through it. Apply `mix()` to plain-text segments first, then assemble the XML string: `xml = f'<b>{mix(bold_part)}</b> {mix(body_part)}'` |
+| Section title stranded alone at page bottom, content on next page | Wrap each header+content group in `KeepTogether`: `story.append(KeepTogether([section_header(title), Spacer(1,4), img(path, ratio)]))` |
+| Radar / polar chart is an oval, not a circle | With two side-by-side polar subplots, each subplot gets half the figure width. Set `figsize=(9, 4.5)` (height = width/2) so each subplot cell is square → true circle. Match the PDF image ratio: `img(path, 0.50)`. **Critically: do NOT use `bbox_inches='tight'` for the radar chart** — it trims to the axis-label bounding box and adds unequal margins that distort the circle back into an oval. Use `plt.subplots_adjust(...)` for spacing instead, and save with `plt.savefig(path, dpi=150)` (no `bbox_inches`). |
+| Bar chart labels overlap / doubled text on bars | Caused by calling both a helper that already calls `ax.bar_label()` and then calling `ax.bar_label()` again on the same container. Fix: create bars once with `ax.bar(...)`, call `ax.bar_label(...)` exactly once, never remove and recreate bar containers. Also remember: legend for reference lines belongs at `loc='upper right'` so it doesn't overlap bars. |
+| Section 4 (multi-chart section) title still stranded despite KeepTogether elsewhere | The section_header was appended to `story` directly (outside any `KeepTogether`) and only the sub-chart was wrapped. Fix: include the section header in the SAME `KeepTogether` as the first chart: `story.append(KeepTogether([section_header(T['s4']), Sp(4), P(name, h3_sty), img(path, ratio)]))`. This rule applies to every multi-chart section: the header must always be in a `KeepTogether` with at least one piece of content. |
+| PDF looks plain / unstyled compared to JSX report | Use ReportLab `Table`-based visual elements: (a) colored section-header bars — a 1-cell `Table` with `BACKGROUND` style; (b) left-border insight cards — a 2-column `Table` where the left column is a thin `Table` with accent color and the right column holds the `Paragraph`. Define palette constants (e.g. `SECTION_BLUE`, `GRAY_LIGHT`) and reuse them throughout. |
 
 ---
 
