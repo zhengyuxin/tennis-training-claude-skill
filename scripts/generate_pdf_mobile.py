@@ -9,6 +9,21 @@ Key differences from the desktop version:
   - Summary cards and training plan stacked vertically
 
 Change LANG at the top to switch between Chinese (cn) and English (en).
+
+Bug fixes applied (v2):
+  1. KeepTogether — every section_header() is inside a KeepTogether with its
+     first content element so it can never be stranded at the bottom of a page.
+     Section 4 (landing) puts the header inside the SAME KeepTogether as the
+     first chart (not a separate one).
+  2. Radar chart — figsize=(9, 4.5) makes each polar subplot 4.5×4.5 → true
+     circle. Saved WITHOUT bbox_inches='tight' (which distorts the circle);
+     use subplots_adjust() for spacing instead.
+  3. insight() — mix() is applied to plain-text segments first, then the XML
+     markup (<b>…</b>) is assembled around the escaped output. Never pass a
+     string containing XML tags through mix().
+  4. Aesthetics — coloured Table-based section_header() bars replace the plain
+     h2_sty paragraphs; left-border accent Table replaces the icon+text layout
+     in insight().
 """
 
 import matplotlib
@@ -18,15 +33,14 @@ import matplotlib.font_manager as fm
 import numpy as np
 import os, re as _re
 
-from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, Image, Table,
-    TableStyle, HRFlowable
+    TableStyle, HRFlowable, KeepTogether
 )
-from reportlab.lib.colors import HexColor, white
+from reportlab.lib.colors import HexColor, white, black
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfbase import pdfmetrics
 
@@ -118,7 +132,7 @@ STRINGS = {
         card_fh='正手成功率', card_bh='反手成功率',
         card_fh_spd='正手速度', card_bh_spd='反手速度',
         vs_first='↕ vs 首次 {val}%',
-        speed_suffix=' km/h',
+        speed_suffix='\u00a0km/h',
         first_val='首次 {val} km/h',
         # Insights
         ins_p1_1_title='反手危机（最紧急）：',
@@ -196,7 +210,7 @@ STRINGS = {
         card_fh='Forehand %', card_bh='Backhand %',
         card_fh_spd='FH Speed', card_bh_spd='BH Speed',
         vs_first='↕ vs first {val}%',
-        speed_suffix=' km/h',
+        speed_suffix='\u00a0km/h',
         first_val='First: {val} km/h',
         ins_p1_1_title='Backhand Crisis (Most Urgent):',
         ins_p1_1_body='Backhand success rate has dropped significantly while speed increased — a classic "chasing speed at the cost of stability" pattern. Reduce backhand speed to below 60 km/h immediately to rebuild consistency.',
@@ -448,17 +462,23 @@ N      = len(cats)
 angles = np.linspace(0, 2*np.pi, N, endpoint=False).tolist(); angles += angles[:1]
 def pad(v): return v + v[:1]
 
-fig, (ra, rb) = plt.subplots(1, 2, figsize=(9, 5), subplot_kw=dict(polar=True))
-for ax, vals, col, nm in [(ra, p1_vals, BLUE, P1_CODE), (rb, yz_vals, GREEN, 'YZ')]:
-    ax.plot(angles, pad(vals), 'o-', color=col, lw=2)
-    ax.fill(angles, pad(vals), color=col, alpha=0.2)
-    ax.set_xticks(angles[:-1]); ax.set_xticklabels(cats, size=10)
+# FIX: figsize=(9, 4.5) → each polar subplot gets 4.5×4.5 → true circle.
+# FIX: do NOT use bbox_inches='tight' — it trims to the label bounding box and
+#      adds unequal margins that distort the circles back into ovals.
+#      Use subplots_adjust for internal spacing, save without bbox trimming.
+BLUE2_RADAR = "#1d4ed8"
+fig, (ra, rb) = plt.subplots(1, 2, figsize=(9, 4.5), subplot_kw=dict(polar=True))
+for ax, vals, col, nm in [(ra, p1_vals, BLUE2_RADAR, P1_CODE), (rb, yz_vals, GREEN, 'YZ')]:
+    ax.plot(angles, pad(vals), 'o-', color=col, lw=2.2, ms=6)
+    ax.fill(angles, pad(vals), color=col, alpha=0.18)
+    ax.set_xticks(angles[:-1]); ax.set_xticklabels(cats, size=9.5)
     ax.set_ylim(0, 100); ax.set_yticks([25, 50, 75, 100])
-    ax.set_yticklabels(['25','50','75','100'], size=8, color='gray')
-    ax.set_title(nm, fontsize=14, fontweight='bold', pad=22, color=col)
-    ax.grid(color='gray', alpha=0.3)
-plt.tight_layout()
-plt.savefig(f"{IMG_DIR}/chart_radar.png", dpi=150, bbox_inches='tight')
+    ax.set_yticklabels(['25','50','75','100'], size=7.5, color='#94a3b8')
+    ax.set_title(nm, fontsize=14, fontweight='bold', pad=24, color=col)
+    ax.grid(color='#cbd5e1', alpha=0.5)
+    ax.spines['polar'].set_color('#e2e8f0')
+plt.subplots_adjust(left=0.06, right=0.94, top=0.88, bottom=0.08, wspace=0.45)
+plt.savefig(f"{IMG_DIR}/chart_radar.png", dpi=150)   # no bbox_inches='tight'
 plt.close()
 
 print(f"[{LANG.upper()}] All mobile charts generated.")
@@ -466,31 +486,54 @@ print(f"[{LANG.upper()}] All mobile charts generated.")
 # ══════════════════════════════════════════════════════════════════════════════
 # ⑨ PDF ASSEMBLY  —  Mobile layout (single column, larger fonts)
 # ══════════════════════════════════════════════════════════════════════════════
+# Phone-native page: 390 pt wide = iPhone Pro Max CSS width.
+# PDF opens at 1:1 scale on iPhone → fonts render at exactly their specified sizes.
+PHONE_W, PHONE_H = 390, 844   # pt  (iPhone 14 Pro Max: 390 × 844 logical px)
+PHONE_MARGIN = 12              # pt per side
 doc = SimpleDocTemplate(
-    OUT, pagesize=A4,
-    leftMargin=10*mm, rightMargin=10*mm,
-    topMargin=15*mm, bottomMargin=15*mm,
+    OUT, pagesize=(PHONE_W, PHONE_H),
+    leftMargin=PHONE_MARGIN, rightMargin=PHONE_MARGIN,
+    topMargin=18, bottomMargin=18,
     title=T['report_title'].format(p1=P1_CODE),
 )
-W = A4[0] - 20*mm   # 190mm — wider than desktop
+W = PHONE_W - 2 * PHONE_MARGIN  # 366 pt
 
 def H(c): return HexColor(c)
 
 def sty(name, **kw):
-    defaults = dict(fontName=BODY_FONT, fontSize=12, leading=19, textColor=H('#374151'))
+    # Base font size bumped to 14 so inline styles feel proportional on iPhone
+    defaults = dict(fontName=BODY_FONT, fontSize=14, leading=20, textColor=H('#374151'))
     defaults.update(kw)
     return ParagraphStyle(name, **defaults)
 
-title_sty = sty('t1', fontName=HEAD_FONT, fontSize=22, textColor=H('#111827'), spaceAfter=5)
-sub_sty   = sty('t2', fontSize=10, textColor=H('#9ca3af'), spaceAfter=16)
-h2_sty    = sty('h2', fontName=HEAD_FONT, fontSize=16, textColor=H('#1f2937'), spaceBefore=18, spaceAfter=8)
-h3_sty    = sty('h3', fontName=HEAD_FONT, fontSize=13, textColor=H('#374151'), spaceBefore=12, spaceAfter=5)
-cap_sty   = sty('cap', fontSize=9, textColor=H('#9ca3af'), spaceAfter=10, alignment=TA_CENTER)
-body_sty  = sty('body', fontSize=12, leading=20, spaceAfter=7)
-foot_sty  = sty('ft',   fontSize=8,  textColor=H('#9ca3af'), alignment=TA_CENTER)
+title_sty = sty('t1', fontName=HEAD_FONT, fontSize=26, textColor=H('#111827'), spaceAfter=5)
+sub_sty   = sty('t2', fontSize=12, textColor=H('#9ca3af'), spaceAfter=16)
+h2_sty    = sty('h2', fontName=HEAD_FONT, fontSize=18, textColor=H('#1f2937'), spaceBefore=18, spaceAfter=8)
+h3_sty    = sty('h3', fontName=HEAD_FONT, fontSize=14, textColor=H('#374151'), spaceBefore=12, spaceAfter=5)
+cap_sty   = sty('cap', fontSize=11, textColor=H('#9ca3af'), spaceAfter=10, alignment=TA_CENTER)
+body_sty  = sty('body', fontSize=13, leading=20, spaceAfter=7)
+foot_sty  = sty('ft',   fontSize=10,  textColor=H('#9ca3af'), alignment=TA_CENTER)
 
 def rule(color='#e5e7eb', t=0.5):
     return HRFlowable(width='100%', thickness=t, color=H(color), spaceAfter=7, spaceBefore=7)
+
+# ── Colored section-header bar (FIX: aesthetic + KeepTogether anchor) ─────────
+SECTION_BLUE  = '#1e3a5f'
+SECTION_GREEN = '#14532d'
+
+def section_header(title, bg=SECTION_BLUE):
+    """Full-width coloured title bar — use inside KeepTogether with first content."""
+    row = [[Paragraph(mix(title),
+             sty('sh', fontName=HEAD_FONT, fontSize=16, textColor=white, leading=22))]]
+    t = Table(row, colWidths=[W])
+    t.setStyle(TableStyle([
+        ('BACKGROUND',    (0,0), (-1,-1), H(bg)),
+        ('TOPPADDING',    (0,0), (-1,-1), 9),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 9),
+        ('LEFTPADDING',   (0,0), (-1,-1), 12),
+        ('RIGHTPADDING',  (0,0), (-1,-1), 8),
+    ]))
+    return t
 
 def img(path, h_ratio=0.55):
     return Image(path, width=W, height=W * h_ratio)
@@ -505,10 +548,13 @@ def Pcap(text):
 def summary_card_single(metrics, bg_h, title, tc):
     rows = [[P(title, sty('ct', fontName=HEAD_FONT, fontSize=13, textColor=H(tc), alignment=TA_CENTER)), '', '', '']]
     for m in metrics:
+        val_fs = 13 if '\u00a0km' in m[1] else 20
+        val_lead = val_fs * 1.35
         rows.append([
-            P(m[0], sty('ml', fontSize=10, textColor=H('#6b7280'), alignment=TA_CENTER)),
-            P(m[1], sty('mv', fontName=HEAD_FONT, fontSize=17, textColor=H(m[4]), alignment=TA_CENTER)),
-            P(m[2], sty('ms', fontSize=9,  textColor=H('#9ca3af'), alignment=TA_CENTER)),
+            P(m[0], sty('ml', fontSize=12, textColor=H('#6b7280'), alignment=TA_CENTER)),
+            P(m[1], sty('mv', fontName=HEAD_FONT, fontSize=val_fs, textColor=H(m[4]),
+                        alignment=TA_CENTER, leading=val_lead)),
+            P(m[2], sty('ms', fontSize=10, textColor=H('#9ca3af'), alignment=TA_CENTER)),
             '',
         ])
     cw = [W/4] * 4
@@ -549,7 +595,7 @@ def summary_section():
 # ── Data tables ───────────────────────────────────────────────────────────────
 def data_tables():
     hdr = T['th']
-    cw  = [24*mm, 18*mm, 20*mm, 18*mm, 16*mm, 22*mm, 16*mm, 22*mm]
+    cw  = [W/8] * 8  # equal columns, fills phone-width page
 
     def build(src, bg):
         rows = []
@@ -572,7 +618,7 @@ def data_tables():
                 is_bad = (ri > 0 and ci == 6 and
                           int(str(cell).replace('%','').strip()) < 82)
                 tc = H('#dc2626') if is_bad else (white if ri == 0 else H('#374151'))
-                s = sty('td', fontSize=10, alignment=TA_CENTER, textColor=tc)
+                s = sty('td', fontSize=11, alignment=TA_CENTER, leading=16, textColor=tc)
                 pr.append(P(str(cell), s))
             pp.append(pr)
         t = Table(pp, colWidths=cw)
@@ -592,13 +638,13 @@ def data_tables():
 
 # ── Training plan ─────────────────────────────────────────────────────────────
 def training_plan_card(items, bg, title, tc):
-    cw = [10*mm, 55*mm, W - 70*mm]
-    data = [[P(title, sty('pt', fontName=HEAD_FONT, fontSize=12, textColor=H(tc))), '', '']]
+    cw = [24, 90, W - 114]  # pt — proportional for phone page width
+    data = [[P(title, sty('pt', fontName=HEAD_FONT, fontSize=13, textColor=H(tc))), '', '']]
     for icon, ttl, desc in items:
         data.append([
-            P(icon, sty('pi', fontSize=12, alignment=TA_CENTER)),
-            P(ttl,  sty('ptl', fontName=HEAD_FONT, fontSize=11, textColor=H(tc))),
-            P(desc, sty('pd',  fontSize=10, textColor=H('#4b5563'), leading=16)),
+            P(icon, sty('pi', fontSize=15, alignment=TA_CENTER, leading=20)),
+            P(ttl,  sty('ptl', fontName=HEAD_FONT, fontSize=12, textColor=H(tc), leading=17)),
+            P(desc, sty('pd',  fontSize=11, textColor=H('#4b5563'), leading=16)),
         ])
     t = Table(data, colWidths=cw)
     t.setStyle(TableStyle([
@@ -623,24 +669,43 @@ def training_plan():
     yz_card = training_plan_card(yz_items, '#d1fae5', yz_title, '#065f46')
     return [p1_card, Spacer(1, 8), yz_card]
 
-# ── Insight helper ─────────────────────────────────────────────────────────────
+# ── Insight helper — left-border accent card ───────────────────────────────────
+# FIX: mix() must be applied to plain-text segments ONLY.
+# Never call mix(f'<b>...</b>') — mix() escapes < and > so the tags appear
+# as literal text. Apply mix() first, then assemble the XML string.
 def insight(icon, title, text, tc):
-    full_text = f'<font color="{tc}"><b>{mix(title)}</b></font>  {mix(text)}'
-    t = Table([[
-        Paragraph(icon, sty('ic', fontSize=14, alignment=TA_CENTER)),
-        Paragraph(full_text, sty('it', fontSize=12, leading=19)),
-    ]], colWidths=[12*mm, W - 14*mm])
+    mb  = mix(f'{icon}  {title}')  # plain text only → safe XML
+    mbd = mix(text)
+    xml = f'<b>{mb}</b>  {mbd}'
+    accent_col = Table([['']], colWidths=[4])
+    accent_col.setStyle(TableStyle([
+        ('BACKGROUND',    (0,0), (-1,-1), H(tc)),
+        ('TOPPADDING',    (0,0), (-1,-1), 0),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+    ]))
+    text_cell = Paragraph(xml, sty('ins', fontSize=13, leading=18,
+                                   textColor=H('#1e293b'), leftIndent=0))
+    row = [[accent_col, text_cell]]
+    t = Table(row, colWidths=[5, W - 5])
     t.setStyle(TableStyle([
-        ('VALIGN',(0,0),(-1,-1),'TOP'),
-        ('LEFTPADDING',(0,0),(-1,-1),0), ('RIGHTPADDING',(0,0),(-1,-1),0),
-        ('TOPPADDING',(0,0),(-1,-1),3),  ('BOTTOMPADDING',(0,0),(-1,-1),3),
+        ('BACKGROUND',    (1,0), (1,0), H('#f8fafc')),
+        ('TOPPADDING',    (0,0), (-1,-1), 8),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 8),
+        ('LEFTPADDING',   (1,0), (1,0), 10),
+        ('RIGHTPADDING',  (1,0), (1,0), 8),
+        ('TOPPADDING',    (0,0), (0,0), 0),
+        ('BOTTOMPADDING', (0,0), (0,0), 0),
+        ('LEFTPADDING',   (0,0), (0,0), 0),
+        ('RIGHTPADDING',  (0,0), (0,0), 0),
+        ('BOX',           (0,0), (-1,-1), 0.5, H('#e2e8f0')),
+        ('VALIGN',        (0,0), (-1,-1), 'MIDDLE'),
     ]))
     return t
 
 def tip_box(text, bg='#fffbeb', border='#fde68a', tc='#92400e'):
     inner = Table(
-        [[Paragraph(mix(text), sty('tb', fontSize=11, textColor=H(tc), leading=17))]],
-        colWidths=[W - 10*mm])
+        [[Paragraph(mix(text), sty('tb', fontSize=13, textColor=H(tc), leading=19))]],
+        colWidths=[W - 20])
     inner.setStyle(TableStyle([
         ('BACKGROUND',(0,0),(-1,-1), H(bg)),
         ('BOX',(0,0),(-1,-1), 0.8, H(border)),
@@ -671,47 +736,77 @@ story.append(Spacer(1, 6))
 story.extend(summary_section())
 story.append(Spacer(1, 12))
 
-# Charts
-story.append(rule())
-story.append(P(T['s1'], h2_sty))
-story.append(img(f"{IMG_DIR}/chart_stroke.png", 0.58))
+# ── Charts — each section header kept with its first chart via KeepTogether ────
+# FIX: section_header() must be inside KeepTogether with at least one content
+# element so it can never be stranded alone at the bottom of a page.
+story.append(KeepTogether([
+    section_header(T['s1']),
+    Spacer(1, 4),
+    img(f"{IMG_DIR}/chart_stroke.png", 0.58),
+]))
 story.append(Pcap(T['cap_stroke']))
-story.append(Spacer(1, 6))
+story.append(Spacer(1, 10))
 
-story.append(P(T['s2'], h2_sty))
-story.append(img(f"{IMG_DIR}/chart_speed.png", 0.52))
+story.append(KeepTogether([
+    section_header(T['s2']),
+    Spacer(1, 4),
+    img(f"{IMG_DIR}/chart_speed.png", 0.52),
+]))
 story.append(Pcap(T['cap_speed']))
-story.append(Spacer(1, 6))
+story.append(Spacer(1, 10))
 
-story.append(P(T['s3'], h2_sty))
-story.append(img(f"{IMG_DIR}/chart_rally.png", 0.52))
+story.append(KeepTogether([
+    section_header(T['s3']),
+    Spacer(1, 4),
+    img(f"{IMG_DIR}/chart_rally.png", 0.52),
+]))
 story.append(Pcap(T['cap_rally']))
-story.append(Spacer(1, 6))
+story.append(Spacer(1, 10))
 
-story.append(P(T['s4'], h2_sty))
-story.append(img(f"{IMG_DIR}/chart_p1_land.png", 0.88))
+# FIX: Section 4 — header must be in the SAME KeepTogether as the first chart.
+# If header and chart are in separate KeepTogethers, the header can still be
+# stranded alone at page bottom.
+story.append(KeepTogether([
+    section_header(T['s4']),
+    Spacer(1, 4),
+    P(P1_CODE, h3_sty),
+    img(f"{IMG_DIR}/chart_p1_land.png", 0.88),
+]))
 story.append(Pcap(T['cap_land_p1'].format(p1=P1_CODE)))
-story.append(img(f"{IMG_DIR}/chart_yz_land.png", 0.88))
+story.append(Spacer(1, 8))
+story.append(KeepTogether([
+    P('YZ', h3_sty),
+    img(f"{IMG_DIR}/chart_yz_land.png", 0.88),
+]))
 story.append(Pcap(T['cap_land_yz']))
-story.append(Spacer(1, 6))
+story.append(Spacer(1, 10))
 
-story.append(P(T['s5'], h2_sty))
-story.append(img(f"{IMG_DIR}/chart_radar.png", 0.52))
-story.append(Pcap(T['cap_radar']))
+story.append(KeepTogether([
+    section_header(T['s5']),
+    Spacer(1, 4),
+    img(f"{IMG_DIR}/chart_radar.png", 0.50),   # h_ratio=0.50 matches 9×4.5 figure
+    Pcap(T['cap_radar']),
+]))
+story.append(Spacer(1, 10))
 
 # Data tables
-story.append(rule())
-story.append(P(T['s6'], h2_sty))
-story.append(P(P1_CODE, h3_sty))
-story.append(p1_tbl)
+story.append(KeepTogether([
+    section_header(T['s6']),
+    Spacer(1, 4),
+    P(P1_CODE, h3_sty),
+    p1_tbl,
+]))
 story.append(Spacer(1, 10))
-story.append(P('YZ', h3_sty))
-story.append(yz_tbl)
+story.append(KeepTogether([
+    P('YZ', h3_sty),
+    yz_tbl,
+]))
 story.append(Pcap(T['cap_table']))
+story.append(Spacer(1, 10))
 
 # Insights
-story.append(rule())
-story.append(P(T['s7'], h2_sty))
+story.append(section_header(T['s7']))
+story.append(Spacer(1, 8))
 
 story.append(P(P1_CODE, h3_sty))
 story.append(insight('⚠️', T['ins_p1_1_title'], T['ins_p1_1_body'], '#dc2626'))
@@ -760,8 +855,8 @@ story.append(tip_box(T['tip_template'].format(
     spd=YZ['正手速度'][-1], pct=YZ['正手'][-1])))
 
 # Training plan
-story.append(rule())
-story.append(P(T['s8'], h2_sty))
+story.append(section_header(T['s8'], bg=SECTION_GREEN))
+story.append(Spacer(1, 8))
 story.extend(training_plan())
 
 # Footer
